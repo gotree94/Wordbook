@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import AVFoundation
 
 struct StudyCardView: View {
     let wordSet: WordSet
@@ -14,8 +15,11 @@ struct StudyCardView: View {
     @State private var showingResult = false
     @State private var isEditingAnswer = false
     @State private var selectedMode: StudyMode = .englishToKorean
+    @State private var isPronunciationEnabled = false
     @FocusState private var isInputFocused: Bool
     @Environment(\.dismiss) private var dismiss
+    
+    private let speechSynthesizer = AVSpeechSynthesizer()
     
     var body: some View {
         Group {
@@ -162,10 +166,35 @@ struct StudyCardView: View {
                             
                             VStack {
                                 Spacer()
-                                Text(session.mode == .englishToKorean ? word.english : word.korean)
-                                    .font(.system(size: 48, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .multilineTextAlignment(.center)
+                                
+                                HStack(spacing: 16) {
+                                    Text(session.mode == .englishToKorean ? word.english : word.korean)
+                                        .font(.system(size: 48, weight: .bold))
+                                        .foregroundStyle(.white)
+                                        .multilineTextAlignment(.center)
+                                    
+                                    // 발음 버튼 (영어 단어일 때만 표시)
+                                    if session.mode == .englishToKorean {
+                                        Button {
+                                            isPronunciationEnabled.toggle()
+                                            if isPronunciationEnabled {
+                                                // 켜질 때 현재 단어 발음
+                                                speakEnglishWord(word.english)
+                                            } else {
+                                                // 꺼질 때 발음 중지
+                                                speechSynthesizer.stopSpeaking(at: .immediate)
+                                            }
+                                        } label: {
+                                            Image(systemName: isPronunciationEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                                                .font(.system(size: 28))
+                                                .foregroundStyle(.white)
+                                                .padding(12)
+                                                .background(Color.white.opacity(0.2))
+                                                .clipShape(Circle())
+                                        }
+                                    }
+                                }
+                                
                                 Spacer()
                             }
                             .padding()
@@ -300,6 +329,15 @@ struct StudyCardView: View {
                 }
             }
         }
+        .onChange(of: session.currentIndex) { oldValue, newValue in
+            // 단어가 바뀔 때마다 자동 발음 (영어→한글 모드일 때만)
+            if isPronunciationEnabled, session.mode == .englishToKorean, let word = session.currentWord {
+                // 약간의 딜레이 후 발음
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    speakEnglishWord(word.english)
+                }
+            }
+        }
     }
     
     private func startStudy() {
@@ -307,7 +345,26 @@ struct StudyCardView: View {
         // 첫 단어에서 자동으로 키보드 포커스
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             isInputFocused = true
+            // 발음 기능이 켜져있고 영어→한글 모드면 자동 발음
+            if isPronunciationEnabled, selectedMode == .englishToKorean, let word = session?.currentWord {
+                speakEnglishWord(word.english)
+            }
         }
+    }
+    
+    private func speakEnglishWord(_ word: String) {
+        // 이전 발음 중지
+        speechSynthesizer.stopSpeaking(at: .immediate)
+        
+        // 발음 기능이 켜져있을 때만 읽기
+        guard isPronunciationEnabled else { return }
+        
+        let utterance = AVSpeechUtterance(string: word)
+        utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
+        utterance.rate = 0.5 // 조금 느리게
+        utterance.pitchMultiplier = 1.0
+        
+        speechSynthesizer.speak(utterance)
     }
 }
 
